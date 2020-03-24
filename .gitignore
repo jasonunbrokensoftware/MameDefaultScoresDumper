@@ -1,0 +1,9 @@
+[Bb]in
+[Oo]bj
+.dropbox
+desktop.ini
+*.suo
+*.user
+*conflicted copy*
+StyleCop.Cache
+.vs
