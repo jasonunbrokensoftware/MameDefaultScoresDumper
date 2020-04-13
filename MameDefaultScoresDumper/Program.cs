@@ -37,7 +37,7 @@ namespace MameDefaultScoresDumper
                 Console.WriteLine();
                 Console.WriteLine($"MAME Default Scores Dumper v{Assembly.GetExecutingAssembly().GetName().Version}\nBy Jason Carr, developer of LaunchBox - https://www.launchbox-app.com/\n");
                 Console.WriteLine("Thanks to GreatStone and community for hi2txt!\n");
-                Console.WriteLine("Recommandation: starts with a delay of 15, then try again with 30, then 180, to analyze a full set as quickly as possible.\n");
+                Console.WriteLine("Recommendation: Start with a delay of 15, then try again with 30, then 180 in order to analyze a full set as quickly as possible.\n");
 
                 bool validArgs = true;
                 bool textMode = false;
@@ -185,6 +185,7 @@ namespace MameDefaultScoresDumper
                 string results = builder.ToString();
 
                 bool missing = results.StartsWith("ERROR: No hiscores file found", StringComparison.OrdinalIgnoreCase);
+
                 if (missing)
                 {
                     Program.missingCount++;
@@ -193,6 +194,7 @@ namespace MameDefaultScoresDumper
                 else
                 {
                     bool error = results.StartsWith("Error", StringComparison.OrdinalIgnoreCase);
+
                     if (error)
                     {
                         Program.errorCount++;
