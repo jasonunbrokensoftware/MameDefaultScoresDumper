@@ -28,17 +28,16 @@ namespace MameDefaultScoresDumper
                 string mameExePath = Path.Combine(Application.StartupPath, "MAME", "Mame64.exe");
                 string hi2TxtFolderPath = Path.Combine(Application.StartupPath, "hi2txt");
                 string sevenZipExePath = Path.Combine(Application.StartupPath, "7-Zip", "7z.exe");
-                string autoHotkeyExePath = Path.Combine(Application.StartupPath, "AutoHotkey", "AutoHotkey.exe");
                 string hi2TxtExePath = Path.Combine(hi2TxtFolderPath, "hi2txt.exe");
                 string hi2TxtZipPath = Path.Combine(hi2TxtFolderPath, "hi2txt.zip");
                 string resultsFolder = Path.Combine(Application.StartupPath, "Results");
                 string datPath = Path.Combine(Path.GetDirectoryName(mameExePath), "plugins", "hiscore", "hiscore.dat");
-                string nvramPath = Path.Combine(Path.GetDirectoryName(mameExePath), "nvram");
                 string hiFolderPath = Path.Combine(Path.GetDirectoryName(mameExePath), "hi");
 
                 Console.WriteLine();
                 Console.WriteLine($"MAME Default Scores Dumper v{Assembly.GetExecutingAssembly().GetName().Version}\nBy Jason Carr, developer of LaunchBox - https://www.launchbox-app.com/\n");
                 Console.WriteLine("Thanks to GreatStone and community for hi2txt!\n");
+                Console.WriteLine("Recommandation: starts with a delay of 15, then try again with 30, then 180, to analyze a full set as quickly as possible.\n");
 
                 bool validArgs = true;
                 bool textMode = false;
@@ -98,26 +97,6 @@ namespace MameDefaultScoresDumper
                     return;
                 }
 
-                if (!File.Exists(autoHotkeyExePath))
-                {
-                    Console.WriteLine("ERROR: Missing AutoHotkey\\AutoHotkey.exe file. Cannot continue.");
-                    return;
-                }
-
-                string ahkScript = @"
-                    #NoTrayIcon
-                    Sleep {0}000
-                    Send {Escape down}
-                    Sleep 50
-                    Send {Escape up}
-                    Exit
-                ";
-
-                ahkScript = ahkScript.Replace("{0}", secondsDelay.ToString());
-
-                string ahkScriptPath = Path.GetTempFileName();
-                File.WriteAllText(ahkScriptPath, ahkScript);
-
                 Directory.SetCurrentDirectory(Path.GetDirectoryName(mameExePath));
 
                 var romNames = Program.GetSevenZipFilePaths(hi2TxtZipPath, sevenZipExePath)
@@ -157,46 +136,17 @@ namespace MameDefaultScoresDumper
                         continue;
                     }
 
-                    Console.WriteLine($"Launching MAME to create {romName} files...");
+                    Console.WriteLine($"Launching MAME to create {romName} files... [{mameExePath} -bench {secondsDelay} {romName}]");
 
-                    var mameProcess = Process.Start(mameExePath, "-keyboardprovider dinput " + romName);
-                    var ahkProcess = Process.Start(autoHotkeyExePath, "\"" + ahkScriptPath + "\"");
+                    var mameProcess = new Process();
+                    mameProcess.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                    mameProcess.StartInfo.FileName = mameExePath;
+                    mameProcess.StartInfo.Arguments = "-bench " + secondsDelay.ToString() + " " + romName;
+                    mameProcess.Start();
                     mameProcess?.WaitForExit();
 
-                    if (ahkProcess != null && !ahkProcess.HasExited)
-                    {
-                        try
-                        {
-                            ahkProcess.Kill();
-                        }
-                        catch
-                        {
-                            // Ignore
-                        }
-                    }
-
-                    string hiPath = Path.Combine(hiFolderPath, romName + ".hi");
-
-                    if (File.Exists(hiPath))
-                    {
-                        Console.WriteLine($"Attempting to dump {romName} high scores from hiscore file...");
-                        Program.DumpHi2Txt(romName, hi2TxtExePath, hiPath, datPath, resultPath, resultErrorPath, textMode);
-                        continue;
-                    }
-
-                    hiPath = Path.Combine(nvramPath, romName);
-
-                    if (Directory.Exists(hiPath))
-                    {
-                        Console.WriteLine($"Attempting to dump {romName} high scores from nvram folder...");
-                        Program.DumpHi2Txt(romName, hi2TxtExePath, hiPath, datPath, resultPath, resultErrorPath, textMode);
-                    }
-                    else
-                    {
-                        Console.WriteLine($"No {romName} hiscore file or nvram folder was found.\n");
-                        Program.missingCount++;
-                        File.WriteAllText(resultMissingPath, "No hiscore file or nvram directory could be found to parse.");
-                    }
+                    Console.WriteLine($"Attempting to dump {romName} high scores from hiscore file...");
+                    Program.DumpHi2Txt(romName, hi2TxtExePath, Path.Combine(hiFolderPath, romName), datPath, resultPath, resultMissingPath, resultErrorPath, textMode);
                 }
 
                 Console.WriteLine($"Process completed.\nTotal ROMs Processed: {romNames.Count()}\nROMs Successfully Parsed: {Program.successCount}\nROMs Missing hiscore/nvram: {Program.missingCount}\nROMs Errored: {Program.errorCount}");
@@ -207,7 +157,7 @@ namespace MameDefaultScoresDumper
             }
         }
 
-        private static void DumpHi2Txt(string romName, string hi2TxtPath, string hiPath, string datPath, string destinationPath, string errorDestinationPath, bool textMode)
+        private static void DumpHi2Txt(string romName, string hi2TxtPath, string hiPath, string datPath, string destinationPath, string missingDestinationPath, string errorDestinationPath, bool textMode)
         {
             var info = new ProcessStartInfo(
                 hi2TxtPath,
@@ -233,18 +183,28 @@ namespace MameDefaultScoresDumper
             process.Exited += (sender, args) =>
             {
                 string results = builder.ToString();
-                bool error = results.StartsWith("Error", StringComparison.OrdinalIgnoreCase);
-                File.WriteAllText(error ? errorDestinationPath : destinationPath, results);
 
-                if (error)
+                bool missing = results.StartsWith("ERROR: No hiscores file found", StringComparison.OrdinalIgnoreCase);
+                if (missing)
                 {
-                    Program.errorCount++;
-                    Console.WriteLine($"Dump errored out for {romName}.\n");
+                    Program.missingCount++;
+                    File.WriteAllText(missingDestinationPath, "No hiscore file or nvram directory could be found to parse.");
                 }
                 else
                 {
-                    Console.WriteLine($"High scores for {romName} dumped successfully.\n");
-                    Program.successCount++;
+                    bool error = results.StartsWith("Error", StringComparison.OrdinalIgnoreCase);
+                    if (error)
+                    {
+                        Program.errorCount++;
+                        File.WriteAllText(errorDestinationPath, results);
+                        Console.WriteLine($"Dump errored out for {romName}.\n");
+                    }
+                    else
+                    {
+                        Program.successCount++;
+                        File.WriteAllText(destinationPath, results);
+                        Console.WriteLine($"High scores for {romName} dumped successfully.\n");
+                    }
                 }
             };
 
